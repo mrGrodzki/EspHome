@@ -1,0 +1,20 @@
+{
+  "C_Cpp.intelliSenseEngine": "Tag Parser",
+  "files.associations": {
+    "esp_tls.h": "c",
+    "cjson.h": "c",
+    "storage.h": "c",
+    "queue.h": "c",
+    "nvs_flash.h": "c",
+    "esp_partition.h": "c",
+    "nvs.h": "c",
+    "esp_spi_flash.h": "c",
+    "task.h": "c",
+    "logger.h": "c",
+    "common.h": "c",
+    "config.h": "c",
+    "stdarg.h": "c",
+    "esp_ota_ops.h": "c",
+    "*.inc": "c"
+  }
+}
