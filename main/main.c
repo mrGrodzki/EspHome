@@ -23,6 +23,8 @@
 
 #include "cJSON.h"
 
+#include "nvs.h"
+
 #define CONFIG_ESP_WIFI_AUTH_WPA2_PSK 1
 
 #if CONFIG_ESP_WIFI_AUTH_OPEN
@@ -49,8 +51,8 @@
  * handlers and start an HTTPS server.
 */
 
-#define ESP_WIFI_SSID      "MIGROPC01_5213"
-#define ESP_WIFI_PASS      "6J96v2/9"
+#define ESP_WIFI_SSID      "ESP_EXAM"
+#define ESP_WIFI_PASS      "12345678"
 #define EXAMPLE_ESP_WIFI_CHANNEL   1
 #define EXAMPLE_MAX_STA_CONN       4
 
@@ -59,11 +61,18 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+#define MAGICNUMBER 0xAA5413
+
+#define WIFI_STATE_AP 0x22
+#define WIFI_STATE_STA 0x44
+
 static const char *TAG = "example";
 
 static int s_retry_num = 0;
 
 static EventGroupHandle_t s_wifi_event_group;
+
+ nvs_handle_t app_nvs_handle;
 typedef struct 
 {
     char* SSID;
@@ -113,21 +122,152 @@ void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
 }
 #endif
 
-static void save_data_wifi(char* _SSID, char* _PASS, bool _RES)
+static void restart_system()
 {
-    wifi_data_strc wifi_data={
-       .SSID = _SSID,
-       .PASS = _PASS,
-       .RES  = _RES,
-       .MagicNumber = 666889 
-    };
+         // Restart module
+    for (int i = 10; i >= 0; i--) {
+        printf("Restarting in %d seconds...\n", i);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    printf("Restarting now.\n");
+    fflush(stdout);
+    esp_restart();
+}
 
-    ESP_LOGI("wifi_data", "SSID:%s", wifi_data.SSID);
-    ESP_LOGI("wifi_data", "PASS:%s",wifi_data.PASS);
-    ESP_LOGI("wifi_data", "RES:%d", wifi_data.RES);
+static bool save_data_wifi(char* _SSID, char* _PASS, bool _RES)
+{   
+    esp_err_t err;
+
+    ESP_LOGI("wifi_data", "SSID:%s", _SSID);
+    ESP_LOGI("wifi_data", "PASS:%s", _PASS);
+    ESP_LOGI("wifi_data", "RES:%d",  _RES);
+
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }
+    err =  nvs_set_str(app_nvs_handle, "SSID", _SSID );
+    printf((err != ESP_OK) ? "Failed write SSID\n" : "Done write SSID\n");
+
+    err =  nvs_set_str(app_nvs_handle, "PASS", _PASS );
+    printf((err != ESP_OK) ? "Failed write PASS\n" : "Done write PASS\n");
+
+    err =  nvs_set_u32(app_nvs_handle, "MagNum", MAGICNUMBER );
+    printf((err != ESP_OK) ? "Failed write MAGICNUMBER\n" : "Done write MAGICNUMBER\n");
+
+    // Commit written value.
+    // After setting any values, nvs_commit() must be called to ensure changes are written
+    // to flash storage. Implementations may write to storage at other times,
+    // but this is not guaranteed.
+    printf("Committing updates in NVS ... ");
+    err = nvs_commit(app_nvs_handle);
+
+    write_state_wifi(WIFI_STATE_STA);
+
+    if(_RES == 1) 
+    {
+        restart_system();
+    }
+    return 1;
+}
+
+static bool read_data_wifi(uint8_t* WIFI_SSID, uint8_t* WIFI_PASS)
+{
+    esp_err_t err;
+    size_t required_size;
+
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }
+    ///////////////////////////////////////////////////////////////////////////// start read ssid
+     err=nvs_get_str(app_nvs_handle, "SSID", NULL, &required_size);
+        
+        
+        switch (err) {
+            case ESP_OK:
+                printf("Done read size wifi\n");
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet! size\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
 
     
+    
+    err = nvs_get_str(app_nvs_handle, "SSID", &WIFI_SSID, &required_size);
+        
+        
+        switch (err) {
+            case ESP_OK:
+                printf("Done read SSID\n");
+                printf("SSID = %s\n", WIFI_SSID);
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet SSID!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+    ////////////////////////////////////////////////////////////////////////////start read pass
+     err=nvs_get_str(app_nvs_handle, "PASS", NULL, &required_size);
+        
+        
+        switch (err) {
+            case ESP_OK:
+                printf("Done read size pass\n");
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet! size pass\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
 
+    err = nvs_get_str(app_nvs_handle, "PASS", &WIFI_PASS, &required_size);
+        
+        
+        switch (err) {
+            case ESP_OK:
+                printf("Done read PASS\n");
+                printf("PASS = %s\n", WIFI_PASS);
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet PASS!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+    ////////////////////////////////////////////////////////////////////////////// start read magic number
+    
+    uint32_t WIFI_MagNum=0;
+    err = nvs_get_u32(app_nvs_handle, "MagNum", &WIFI_MagNum);
+
+    switch (err) {
+            case ESP_OK:
+                printf("Done read MagNum\n");
+                printf("MagNum = %d\n", WIFI_MagNum);
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet MagNum!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+    ////////////////////////////////////////////////////////////////////////////close nvs
+
+    nvs_close(app_nvs_handle);
+
+    if (WIFI_MagNum == MAGICNUMBER)
+    {
+        return 1;
+    }
+    
+    return 0;
 }
 
 static void cJSON_parser_setwifi(char *output_buffer)
@@ -308,17 +448,13 @@ EventBits_t wifi_init_sta(void)
                                                         NULL,
                                                         &instance_got_ip));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = ESP_WIFI_SSID,
-            .password = ESP_WIFI_PASS,
-            /* Setting a password implies station will connect to all security modes including WEP/WPA.
-             * However these modes are deprecated and not advisable to be used. Incase your Access point
-             * doesn't support WPA2, these mode can be enabled by commenting below line */
-	     .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
-        },
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+
+
+    wifi_config_t wifi_config;
+    wifi_config.sta.threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD;
+    if(!read_data_wifi(&wifi_config.sta.ssid, &wifi_config.sta.password)) return 0;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     ESP_ERROR_CHECK(esp_wifi_start() );
 
@@ -391,6 +527,59 @@ void wifi_init_softap(void)
              ESP_WIFI_SSID, ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
 }
 
+static bool write_state_wifi(uint8_t WIFI_state)
+{
+    esp_err_t err;
+
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }   
+
+    err = nvs_set_u8(app_nvs_handle, "WIFI_state", WIFI_state);
+    printf((err != ESP_OK) ? "Failed write WIFI_state\n" : "Done write WIFI_state\n");
+
+    printf("Committing updates in NVS ... ");
+    err = nvs_commit(app_nvs_handle);
+     printf((err != ESP_OK) ? "Failed commit WIFI_state\n" : "Done commit WIFI_state\n");
+
+    nvs_close(app_nvs_handle);
+    return 1;
+}
+
+static bool read_state_wifi()
+{
+    esp_err_t err;
+
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }    
+    
+    uint32_t WIFI_state=WIFI_STATE_AP;
+    err = nvs_get_u8(app_nvs_handle, "WIFI_state", &WIFI_state);
+
+     switch (err) {
+            case ESP_OK:
+                printf("Done read WIFI_state\n");
+                printf("WIFI_state = %d\n", WIFI_MagNum);
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet WIFI_state!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+
+    if(WIFI_state==WIFI_STATE_AP)  return 0;
+    if(WIFI_state==WIFI_STATE_STA) return 1;
+
+    nvs_close(app_nvs_handle);
+
+}
+
 void app_main(void)
 {
     static httpd_handle_t server = NULL;
@@ -399,21 +588,21 @@ void app_main(void)
       ESP_ERROR_CHECK(nvs_flash_erase());
       ret = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(ret);
-
-    
-    
-  
-    
-    if(wifi_init_sta()==WIFI_FAIL_BIT)
-    {
-    ESP_LOGE(TAG, "CON ERROR");
-    esp_wifi_stop();
-    esp_netif_deinit();
-    wifi_init_softap();
+    ESP_ERROR_CHECK(ret);  
+    uint8_t WIFI_state = read_state_wifi()
+    if(read_state_wifi()) 
+         wifi_init_softap();
+    else 
+    {   
+        if(wifi_init_sta()==WIFI_FAIL_BIT)
+        {
+            ESP_LOGE(TAG, "CON ERROR");
+            write_state_wifi(WIFI_STATE_AP);
+            restart_system();
+        }  
     }
-    start_webserver();
-
+        start_webserver();
+ 
   
 
     
