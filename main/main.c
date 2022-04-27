@@ -25,7 +25,7 @@
 
 #include "nvs.h"
 
-#define CONFIG_ESP_WIFI_AUTH_WPA2_PSK 1
+// #define CONFIG_ESP_WIFI_AUTH_WPA2_PSK 1
 
 #if CONFIG_ESP_WIFI_AUTH_OPEN
 #define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_OPEN
@@ -56,7 +56,7 @@
 #define EXAMPLE_ESP_WIFI_CHANNEL   1
 #define EXAMPLE_MAX_STA_CONN       4
 
-#define ESP_MAXIMUM_RETRY  3
+#define ESP_MAXIMUM_RETRY  10
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
@@ -80,6 +80,9 @@ typedef struct
     bool  RES;
     int   MagicNumber;
 }wifi_data_strc;
+
+
+static bool write_state_wifi(uint8_t WIFI_state);
 
 
 /* An HTTP GET handler */
@@ -125,7 +128,7 @@ void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
 static void restart_system()
 {
          // Restart module
-    for (int i = 10; i >= 0; i--) {
+    for (int i = 5; i >= 0; i--) {
         printf("Restarting in %d seconds...\n", i);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -172,10 +175,12 @@ static bool save_data_wifi(char* _SSID, char* _PASS, bool _RES)
     return 1;
 }
 
-static bool read_data_wifi(uint8_t* WIFI_SSID, uint8_t* WIFI_PASS)
+static bool read_data_wifi(uint8_t* WIFI_SSID_, uint8_t* WIFI_PASS_)
 {
     esp_err_t err;
     size_t required_size;
+    uint8_t WIFI_SSID[40];
+    uint8_t WIFI_PASS[40];
 
     err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
     if (err != ESP_OK) {
@@ -213,6 +218,8 @@ static bool read_data_wifi(uint8_t* WIFI_SSID, uint8_t* WIFI_PASS)
             default :
                 printf("Error (%s) reading!\n", esp_err_to_name(err));
         }
+
+    memcpy(WIFI_SSID_, &WIFI_SSID, required_size);
     ////////////////////////////////////////////////////////////////////////////start read pass
      err=nvs_get_str(app_nvs_handle, "PASS", NULL, &required_size);
         
@@ -242,6 +249,8 @@ static bool read_data_wifi(uint8_t* WIFI_SSID, uint8_t* WIFI_PASS)
             default :
                 printf("Error (%s) reading!\n", esp_err_to_name(err));
         }
+
+     memcpy(WIFI_PASS_, &WIFI_PASS, required_size);
     ////////////////////////////////////////////////////////////////////////////// start read magic number
     
     uint32_t WIFI_MagNum=0;
@@ -451,9 +460,12 @@ EventBits_t wifi_init_sta(void)
 
 
     wifi_config_t wifi_config;
-    wifi_config.sta.threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD;
-    if(!read_data_wifi(&wifi_config.sta.ssid, &wifi_config.sta.password)) return 0;
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    wifi_config.sta.pmf_cfg.capable = true;
+    wifi_config.sta.pmf_cfg.required = false;
 
+    if(!read_data_wifi(&wifi_config.sta.ssid, &wifi_config.sta.password))
+         return 0;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     ESP_ERROR_CHECK(esp_wifi_start() );
@@ -472,11 +484,11 @@ EventBits_t wifi_init_sta(void)
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 ESP_WIFI_SSID, ESP_WIFI_PASS);
+                 wifi_config.sta.ssid, wifi_config.sta.password);
                  return bits;
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 ESP_WIFI_SSID, ESP_WIFI_PASS);
+                 wifi_config.sta.ssid, wifi_config.sta.password);
                 return bits;
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
@@ -548,7 +560,7 @@ static bool write_state_wifi(uint8_t WIFI_state)
     return 1;
 }
 
-static bool read_state_wifi()
+static uint8_t read_state_wifi()
 {
     esp_err_t err;
 
@@ -564,7 +576,7 @@ static bool read_state_wifi()
      switch (err) {
             case ESP_OK:
                 printf("Done read WIFI_state\n");
-                printf("WIFI_state = %d\n", WIFI_MagNum);
+                printf("WIFI_state = %d\n", WIFI_state);
                 break;
             case ESP_ERR_NVS_NOT_FOUND:
                 printf("The value is not initialized yet WIFI_state!\n");
@@ -573,10 +585,11 @@ static bool read_state_wifi()
                 printf("Error (%s) reading!\n", esp_err_to_name(err));
         }
 
-    if(WIFI_state==WIFI_STATE_AP)  return 0;
-    if(WIFI_state==WIFI_STATE_STA) return 1;
+    
 
     nvs_close(app_nvs_handle);
+
+   return WIFI_state;
 
 }
 
@@ -589,11 +602,10 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);  
-    uint8_t WIFI_state = read_state_wifi()
-    if(read_state_wifi()) 
-         wifi_init_softap();
-    else 
-    {   
+    uint8_t WIFI_state = read_state_wifi();
+
+    if  (WIFI_state == WIFI_STATE_STA) 
+    {
         if(wifi_init_sta()==WIFI_FAIL_BIT)
         {
             ESP_LOGE(TAG, "CON ERROR");
@@ -601,7 +613,13 @@ void app_main(void)
             restart_system();
         }  
     }
-        start_webserver();
+    else 
+        if  (WIFI_state == WIFI_STATE_AP) 
+        {
+            wifi_init_softap();
+        }               
+        
+         start_webserver();
  
   
 
