@@ -68,6 +68,8 @@
 
 static const char *TAG = "example";
 
+
+
 static int s_retry_num = 0;
 
 static EventGroupHandle_t s_wifi_event_group;
@@ -459,11 +461,14 @@ EventBits_t wifi_init_sta(void)
 
 
 
-    wifi_config_t wifi_config;
+    wifi_config_t wifi_config = 
+    {
+    };
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
-
+    // wifi_config.sta.ssid=ESP_WIFI_SSID;
+    // wifi_config.sta.password="hAslo1313@@";
     if(!read_data_wifi(&wifi_config.sta.ssid, &wifi_config.sta.password))
          return 0;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -483,11 +488,11 @@ EventBits_t wifi_init_sta(void)
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
+        ESP_LOGI(TAG, "connected to ap SSID:%s. password:%s.",
                  wifi_config.sta.ssid, wifi_config.sta.password);
                  return bits;
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
+        ESP_LOGI(TAG, "Failed to connect to SSID:%s. password:%s.",
                  wifi_config.sta.ssid, wifi_config.sta.password);
                 return bits;
     } else {
@@ -603,7 +608,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);  
     uint8_t WIFI_state = read_state_wifi();
-
+   
     if  (WIFI_state == WIFI_STATE_STA) 
     {
         if(wifi_init_sta()==WIFI_FAIL_BIT)
