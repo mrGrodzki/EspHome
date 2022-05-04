@@ -74,14 +74,7 @@ static int s_retry_num = 0;
 
 static EventGroupHandle_t s_wifi_event_group;
 
- nvs_handle_t app_nvs_handle;
-typedef struct 
-{
-    char* SSID;
-    char* PASS;
-    bool  RES;
-    int   MagicNumber;
-}wifi_data_strc;
+nvs_handle_t app_nvs_handle;
 
 
 static bool write_state_wifi(uint8_t WIFI_state);
@@ -330,11 +323,12 @@ static esp_err_t setwifi_post_handler(httpd_req_t *req)
         ESP_LOGI(TAG, "%.*s", ret, buf);
         ESP_LOGI(TAG, "====================================");
 
-        cJSON_parser_setwifi(&buf);
+       
     }
 
     // End response
     httpd_resp_send_chunk(req, NULL, 0);
+    cJSON_parser_setwifi(&buf);
     return ESP_OK;
 }
 
