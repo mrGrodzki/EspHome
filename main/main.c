@@ -25,6 +25,8 @@
 
 #include "nvs.h"
 
+#include <driver/gpio.h>
+
 // #define CONFIG_ESP_WIFI_AUTH_WPA2_PSK 1
 
 #if CONFIG_ESP_WIFI_AUTH_OPEN
@@ -66,6 +68,14 @@
 #define WIFI_STATE_AP 0x22
 #define WIFI_STATE_STA 0x44
 
+#define MOSFET1 34
+#define MOSFET2 35
+#define MOSFET3 32
+
+#define TRIAC1 25
+#define TRIAC2 26
+#define TRIAC3 27
+
 static const char *TAG = "example";
 
 
@@ -76,6 +86,19 @@ static EventGroupHandle_t s_wifi_event_group;
 
 nvs_handle_t app_nvs_handle;
 
+typedef enum
+{
+    mos_1,
+    mos_2,
+    mos_3
+}MOS_num_t;
+
+typedef enum
+{
+    tri_1,
+    tri_2,
+    tri_3
+}TRIAC_num_t;
 
 static bool write_state_wifi(uint8_t WIFI_state);
 
@@ -119,6 +142,18 @@ void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
     free(buf);
 }
 #endif
+
+static void initHW()
+{
+    gpio_set_direction (TRIAC1,GPIO_MODE_OUTPUT);
+    gpio_set_direction (TRIAC2,GPIO_MODE_OUTPUT);
+    gpio_set_direction (TRIAC3,GPIO_MODE_OUTPUT);
+
+    // gpio_set_direction (MOSFET1,GPIO_MODE_OUTPUT);
+    // gpio_set_direction (MOSFET2,GPIO_MODE_OUTPUT);
+    gpio_set_direction (MOSFET3,GPIO_MODE_OUTPUT);
+
+}
 
 static void restart_system()
 {
@@ -274,6 +309,106 @@ static bool read_data_wifi(uint8_t* WIFI_SSID_, uint8_t* WIFI_PASS_)
     return 0;
 }
 
+static void setMosfet(MOS_num_t num, uint8_t state)
+{   
+
+    if(state>0) state=1;
+
+    switch (num)
+    {
+    case mos_1:
+        // gpio_set_level(MOSFET1,state); //HW nie dzila
+        break;
+    case mos_2:
+        // gpio_set_level(MOSFET2,state);  //HW nie dzila
+        break;
+    case mos_3:
+        gpio_set_level(MOSFET3,state);
+        break;
+
+    }
+}
+
+static void setTRIAC(TRIAC_num_t num, uint8_t state)
+{   
+
+    if(state>0) state=1;
+
+    switch (num)
+    {
+    case tri_1:
+        gpio_set_level(TRIAC1,state);
+        break;
+    case tri_2:
+        gpio_set_level(TRIAC2,state); 
+        break;
+    case tri_3:
+        gpio_set_level(TRIAC3,state);
+        break;
+
+    }
+}
+
+static bool cJSON_parser_setstate(char *output_buffer)
+{   
+
+    cJSON *root = cJSON_Parse(output_buffer);
+    
+    if (root == NULL) 
+    {
+        ESP_LOGW("cJSON", "errorPars");
+        return 0;
+    }
+
+    cJSON *TRIAC = cJSON_GetObjectItem(root, "TRIAC");
+
+        cJSON *T_1 = cJSON_GetObjectItem(TRIAC, "T_1");
+        ESP_LOGW("cJSON", "T_1:%d", T_1->valueint);
+        setTRIAC(tri_1, T_1->valueint);
+
+        cJSON *T_2 = cJSON_GetObjectItem(TRIAC, "T_2");
+        ESP_LOGW("cJSON", "T_2:%d", T_2->valueint);
+        setTRIAC(tri_2, T_2->valueint);
+
+        cJSON *T_3 = cJSON_GetObjectItem(TRIAC, "T_3");
+        ESP_LOGW("cJSON", "T_3:%d", T_3->valueint);
+        setTRIAC(tri_3, T_3->valueint);
+
+    cJSON *MOS = cJSON_GetObjectItem(root, "MOS");
+
+        cJSON *M_1 = cJSON_GetObjectItem(MOS, "M_1");
+        ESP_LOGW("cJSON", "M_1:%d", M_1->valueint);
+        setMosfet(mos_1, M_1->valueint);
+
+        cJSON *M_2 = cJSON_GetObjectItem(MOS, "M_2");
+        ESP_LOGW("cJSON", "M_2:%d", M_2->valueint);
+        setMosfet(mos_2, M_2->valueint);
+
+        cJSON *M_3 = cJSON_GetObjectItem(MOS, "M_3");
+        ESP_LOGW("cJSON", "M_3:%d", M_3->valueint);
+        setMosfet(mos_3, M_3->valueint);    
+
+    cJSON *Secur = cJSON_GetObjectItem(root, "Secur");
+    ESP_LOGW("cJSON", "Secur:%d", Secur->valueint);
+
+    cJSON *ADC_VCC = cJSON_GetObjectItem(root, "ADC_VCC");
+    ESP_LOGW("cJSON", "ADC_VCC:%d", ADC_VCC->valueint);
+
+    cJSON *OneWire = cJSON_GetObjectItem(root, "OneWire");
+    ESP_LOGW("cJSON", "OneWire:%d", OneWire->valueint);
+
+    cJSON *BMP280 = cJSON_GetObjectItem(root, "BMP280");
+    ESP_LOGW("cJSON", "BMP280:%d", BMP280->valueint);
+
+    cJSON *LCD = cJSON_GetObjectItem(root, "LCD");
+    ESP_LOGW("cJSON", "LCD:%d", LCD->valueint); 
+    
+
+    // memcpy(mess_str.data_text, chat->valuestring, strlen(chat->valuestring));
+    cJSON_Delete(root);
+    return 1;
+}
+
 static void cJSON_parser_setwifi(char *output_buffer)
 {
     cJSON *root = cJSON_Parse(output_buffer);
@@ -296,6 +431,8 @@ static void cJSON_parser_setwifi(char *output_buffer)
     ESP_LOGW("cJSON", "RES:%d", RES->valueint);
 
     save_data_wifi(SSID->valuestring, PASS->valuestring, RES->valueint);
+
+    cJSON_Delete(root);
 }
 
 static esp_err_t setwifi_post_handler(httpd_req_t *req)
@@ -332,6 +469,40 @@ static esp_err_t setwifi_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t setstate_post_handler(httpd_req_t *req)
+{
+    char buf[400];
+    int ret, remaining = req->content_len;
+
+    while (remaining > 0) {
+        /* Read the data for the request */
+        if ((ret = httpd_req_recv(req, buf,
+                        MIN(remaining, sizeof(buf)))) <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                /* Retry receiving if timeout occurred */
+                continue;
+            }
+            return ESP_FAIL;
+        }
+
+        /* Send back the same data */
+        httpd_resp_send_chunk(req, buf, ret);
+        remaining -= ret;
+
+        /* Log data received */
+        ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+        ESP_LOGI(TAG, "%.*s", ret, buf);
+        ESP_LOGI(TAG, "====================================");
+
+       
+    }
+
+    // End response
+    httpd_resp_send_chunk(req, NULL, 0);
+    cJSON_parser_setstate(&buf);
+    return ESP_OK;
+}
+
 static const httpd_uri_t root = {
     .uri       = "/",
     .method    = HTTP_GET,
@@ -342,6 +513,13 @@ static const httpd_uri_t setwifi = {
     .uri       = "/setwifi",
     .method    = HTTP_POST,
     .handler   = setwifi_post_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t setStateDevice = {
+    .uri       = "/setstate",
+    .method    = HTTP_POST,
+    .handler   = setstate_post_handler,
     .user_ctx  = NULL
 };
 
@@ -378,6 +556,8 @@ static httpd_handle_t start_webserver(void)
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &root));
     
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &setwifi));
+
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &setStateDevice));
     return server;
 }
 
@@ -593,7 +773,11 @@ static uint8_t read_state_wifi()
 }
 
 void app_main(void)
-{
+{   
+
+    initHW();
+
+
     static httpd_handle_t server = NULL;
  esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
