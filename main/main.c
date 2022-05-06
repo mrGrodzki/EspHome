@@ -100,6 +100,27 @@ typedef enum
     tri_3
 }TRIAC_num_t;
 
+typedef struct 
+{
+    
+    uint8_t T1;
+    uint8_t T2;
+    uint8_t T3;
+
+    uint8_t M1;
+    uint8_t M2;
+    uint8_t M3;
+
+    bool Secur;
+    bool ADC_VCC;
+    bool OneWire;
+    bool BMP280;
+    bool LCD
+
+}state_t;
+
+static state_t state_strc;
+
 static bool write_state_wifi(uint8_t WIFI_state);
 
 
@@ -142,6 +163,60 @@ void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
     free(buf);
 }
 #endif
+
+static void readStateAfterReset(state_t *strc_)
+{
+    esp_err_t err;
+    size_t required_size;
+
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }
+
+    err = nvs_get_blob(app_nvs_handle, "stateDev",NULL, &required_size);
+
+    switch (err) {
+            case ESP_OK:
+                printf("Done read size state\n");
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet size state!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+
+    err = nvs_get_blob(app_nvs_handle, "stateDev",strc_, &required_size);
+
+    switch (err) {
+            case ESP_OK:
+                printf("Done read size state\n");
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet size state!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+
+    nvs_close(app_nvs_handle);
+}
+
+static void writeStateAfterReset(state_t *strc_)
+{
+    esp_err_t err;
+    err = nvs_open("storage", NVS_READWRITE, &app_nvs_handle);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return 0;
+    }
+
+    err =  nvs_set_blob(app_nvs_handle, "SSID", _SSID );
+    printf((err != ESP_OK) ? "Failed write SSID\n" : "Done write SSID\n");
+
+}
 
 static void initHW()
 {
@@ -674,8 +749,6 @@ EventBits_t wifi_init_sta(void)
     }
     return 1;
 }
-
-
 
 void wifi_init_softap(void)
 {
