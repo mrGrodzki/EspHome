@@ -1,4 +1,5 @@
-# ESPHome Module
+# ESPHome Module 
+
 
 This is a sample IoT project, using esp32 with a dedicated SDK, for control in an intelligent apartment.
 The device can measure the temperature / humidity / pressure from various sensors, recognize human activity within its range, and output information to the display.
@@ -6,10 +7,9 @@ It includes 3 reliably controlled 230V output and 3 low voltage outputs.
 
 The device also supports HTTPS server, switching between WI-FI AP and WI-FI STA.
 
-#SW:
-sfd
+## SW:
 
-# Available POST requests:
+### Available POST requests:
 
 WI-FI settings:
 ```
@@ -51,4 +51,10 @@ Body:
     "LCD"     : true
 }
 ```
+## HW:
 
+Schematics:
+
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esphome_schem_par1.png)
+
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esphome_schem_par2.png)
