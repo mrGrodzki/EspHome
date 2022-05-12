@@ -58,3 +58,7 @@ Schematics:
 ![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esphome_schem_par1.png)
 
 ![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esphome_schem_par2.png)
+
+PCB:
+
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/PCBEspHome.png)
