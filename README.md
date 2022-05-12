@@ -62,3 +62,8 @@ Schematics:
 PCB:
 
 ![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/PCBEspHome.png)
+
+Unfortunately the PCB was overheating during soldering, thus turning yellow:
+
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/20220512_132227.jpg)
+
