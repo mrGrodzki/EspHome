@@ -2,7 +2,7 @@
 
 
 This is a sample IoT project, using esp32 with a dedicated SDK, for control in an intelligent apartment.
-The device can measure the temperature / humidity / pressure from various sensors, recognize human activity within its range, and output information to the display.
+The device can measure the temperature / humidity / pressure from various sensors, recognize human activity within its range, notice vibrations, and output information to the display.
 It includes 3 reliably controlled 230V output and 3 low voltage outputs.
 
 The device also supports HTTPS server, switching between WI-FI AP and WI-FI STA.
