@@ -1,5 +1,18 @@
-# ESPHome Module 
+# Home Module 
 
+This project made for increasing comfort life in rooms/small apartments, namely automatisation
+
+## Requirements
+
+- Thernostat control
+- Lighting control (AC dimming)
+- Sun mode ( imitation sun in the morning )
+- Backlight control or different low voltage devices
+- Motion sensor 
+- Measuring temperature and humidity 
+- Configuring and swishing network with HTTPS
+- HTTPS server / MQTT client
+- ~~Status display~~
 
 This is a sample IoT project, using esp32 with a dedicated SDK, for control in an intelligent apartment.
 The device can measure the temperature / humidity / pressure from various sensors, recognize human activity within its range, notice vibrations, and output information to the display.
