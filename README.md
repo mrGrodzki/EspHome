@@ -2,7 +2,7 @@
 
 This project made for increasing comfort life in rooms/small apartments, namely automatisation
 
-## Requirements
+## Requirements:
 
 - Thernostat control
 - Lighting control (AC dimming)
@@ -13,6 +13,14 @@ This project made for increasing comfort life in rooms/small apartments, namely 
 - Configuring and swishing network with HTTPS
 - HTTPS server / MQTT client
 - ~~Status display~~
+
+## Technical solution:
+
+- heating, lighting, sun mode control   - TRIAC with extrenaly detection cross zero
+- Backlight control                     - MOSFET with PWM  
+- Motion sensor                         - Extrenaly doppler sensor
+- Temperature sensor                    - BME280
+- HTTPS server + MCU                    - ESP32
 
 This is a sample IoT project, using esp32 with a dedicated SDK, for control in an intelligent apartment.
 The device can measure the temperature / humidity / pressure from various sensors, recognize human activity within its range, notice vibrations, and output information to the display.
