@@ -132,6 +132,10 @@ PCB layout Botton:
 
 ![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/PCB_BOT_esp_home-V2.0cor_2022-09-26.png.jpg)
 
+PCB:
+
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esp_home-V2.0cor_2022-09-26.png)
+
 ## Hardware 1.0v:
 
 Schematics:
