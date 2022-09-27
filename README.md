@@ -121,6 +121,8 @@ Body:
 }
 ```
 ## Hardware 2.0v:
+Schematics:
+![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/Schematic_esp_home-V2_cor_2022-09-26.png)
 
 ## Hardware 1.0v:
 
