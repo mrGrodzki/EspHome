@@ -26,7 +26,7 @@ This project made for increasing comfort life in rooms/small apartments, namely 
 
 ## Implemented hardware:
 
-- Design PCB sixe 10x10cm
+- Design PCB size 10x10cm
 - 3 TRIACs with 16A current
 - Circuit for detection cross zero
 - 3 high current MOSFET 
