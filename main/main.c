@@ -27,6 +27,12 @@
 
 #include <driver/gpio.h>
 
+#include "driver/timer.h"
+
+#include "st7789.h"
+
+#include "esp_sntp.h"
+
 // #define CONFIG_ESP_WIFI_AUTH_WPA2_PSK 1
 
 #if CONFIG_ESP_WIFI_AUTH_OPEN
@@ -68,23 +74,38 @@
 #define WIFI_STATE_AP 0x22
 #define WIFI_STATE_STA 0x44
 
-#define MOSFET1 34
-#define MOSFET2 35
-#define MOSFET3 32
+#define MOSFET1 32
+#define MOSFET2 33
+#define MOSFET3 25
 
-#define TRIAC1 25
-#define TRIAC2 26
-#define TRIAC3 27
+#define TRIAC1 26
+#define TRIAC2 27
+#define TRIAC3 14
 
-static const char *TAG = "example";
+#define CROSSIN 34
+
+#define TIMERG_0     0
+#define TIMERG_1     1
+#define hw_timer_0   0
+#define hw_timer_1   1
+
+#define TIMER_DIVIDER         8  //  Hardware timer clock divider
+#define TIMER_SCALE           (TIMER_BASE_CLK / TIMER_DIVIDER)  // convert counter value to seconds
 
 
+static const char *TAG = "ESP_HOME";
+
+time_t now;
+struct tm timeinfo;
 
 static int s_retry_num = 0;
 
 static EventGroupHandle_t s_wifi_event_group;
 
 nvs_handle_t app_nvs_handle;
+
+spi_device_handle_t SPIhandle;
+TaskHandle_t xSun_task_handl;
 
 typedef enum
 {
@@ -100,7 +121,67 @@ typedef enum
     tri_3
 }TRIAC_num_t;
 
+static void LCD_info_setwifi();
 static bool write_state_wifi(uint8_t WIFI_state);
+static void enable_interr_cross();
+static void check_need_interr_cross();
+static bool check_en_sun_mode(TRIAC_num_t num);
+static void disable_sun_mode();
+
+static uint8_t counter_one=0;
+static uint8_t counter_two=0;
+static uint8_t prob=1;
+static bool cross=0;
+
+
+
+
+typedef struct 
+{
+    uint8_t TRIAC1_Del;
+    uint8_t TRIAC2_Del;
+    uint8_t TRIAC3_Del;
+
+    bool    TRIAC1_state;
+    bool    TRIAC2_state;
+    bool    TRIAC3_state;
+
+    uint8_t TRIAC1_counter;
+    uint8_t TRIAC2_counter;
+    uint8_t TRIAC3_counter;
+}TRIAC_state_strc;
+
+typedef struct 
+{
+    uint8_t hour_start;
+    uint8_t min_start;
+    uint8_t  dur;
+    uint8_t chanal;
+    bool state;
+    bool sun_on;
+}sun_mode_strc;
+
+sun_mode_strc sun_mode={
+    .state=false,
+    .sun_on=false,
+};
+
+
+TRIAC_state_strc TRIAC_state=
+{
+    .TRIAC1_state=false,
+    .TRIAC2_state=false,
+    .TRIAC3_state=false,
+    
+    .TRIAC1_Del=10,
+    .TRIAC2_Del=10,
+    .TRIAC3_Del=10,
+
+    .TRIAC1_counter=0,
+    .TRIAC2_counter=0,
+    .TRIAC3_counter=0,
+};
+
 
 
 /* An HTTP GET handler */
@@ -143,16 +224,110 @@ void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
 }
 #endif
 
+void IRAM_ATTR gpio_CROSS_isr_handler(void* arg)
+{   
+    timer_start(TIMERG_0, hw_timer_1);
+    gpio_intr_disable(CROSSIN);
+    cross=1;   
+}
+
+void IRAM_ATTR timer_CROSS_callback()
+{   
+     
+    if(TRIAC_state.TRIAC1_state)
+    {
+        if(TRIAC_state.TRIAC1_counter==TRIAC_state.TRIAC1_Del && cross)
+        {
+            gpio_set_level(TRIAC1,1); 
+        }
+    }
+
+    if(TRIAC_state.TRIAC2_state)
+    {
+        if(TRIAC_state.TRIAC2_counter==TRIAC_state.TRIAC2_Del && cross)
+        {
+            gpio_set_level(TRIAC2,1); 
+        }
+    }
+    if((TRIAC_state.TRIAC1_counter>9||TRIAC_state.TRIAC2_counter>9)  && cross)
+    {
+        gpio_intr_enable(CROSSIN);
+        timer_pause(TIMERG_0, hw_timer_1);
+        cross=0;
+        TRIAC_state.TRIAC1_counter=0;
+        TRIAC_state.TRIAC2_counter=0;
+    }
+
+
+    if(TRIAC_state.TRIAC2_counter==TRIAC_state.TRIAC2_Del || TRIAC_state.TRIAC1_counter==TRIAC_state.TRIAC1_Del)
+    {
+        for(int i=0;i<0xAAA;i++);
+        
+        gpio_set_level(TRIAC1,0); 
+        gpio_set_level(TRIAC2,0); 
+    }
+    TIMERG0.hw_timer[hw_timer_1].update = 1;
+    TIMERG0.int_clr_timers.t0 = 1;
+    TIMERG0.hw_timer[hw_timer_1].config.alarm_en = 1;
+    TRIAC_state.TRIAC1_counter++;
+    TRIAC_state.TRIAC2_counter++;
+}
+
+void init_timer()
+{
+    timer_config_t config = {
+        .divider = TIMER_DIVIDER,
+        .counter_dir = TIMER_COUNT_UP,
+        .counter_en = TIMER_PAUSE,
+        .alarm_en = TIMER_ALARM_EN,
+        .auto_reload = 1,
+        .intr_type = TIMER_INTR_LEVEL,
+    }; 
+    
+    timer_init(TIMERG_0, hw_timer_1, &config);
+    timer_pause(TIMERG_0, hw_timer_1);
+    timer_set_counter_value(TIMERG_0, hw_timer_1, 0);
+    timer_set_alarm_value(TIMERG_0, hw_timer_1, 0.0008 * TIMER_SCALE); // 0.008 min 
+    timer_enable_intr(TIMERG_0, hw_timer_1);
+   
+    timer_isr_callback_add(TIMERG_0, hw_timer_1, timer_CROSS_callback, NULL , 0);
+}
+
+void init_gpio_intr()
+{
+
+    gpio_set_direction(CROSSIN,  GPIO_MODE_INPUT);
+    gpio_set_intr_type(CROSSIN, GPIO_INTR_POSEDGE);
+    // gpio_intr_enable(CROSSIN);
+    check_need_interr_cross();
+
+    //  gpio_isr_register(gpio_pp_isr_handler, NULL, ESP_INTR_FLAG_IRAM, NULL); // 17
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(CROSSIN ,gpio_CROSS_isr_handler, NULL );
+
+}
+
 static void initHW()
 {
     gpio_set_direction (TRIAC1,GPIO_MODE_OUTPUT);
     gpio_set_direction (TRIAC2,GPIO_MODE_OUTPUT);
     gpio_set_direction (TRIAC3,GPIO_MODE_OUTPUT);
 
-    // gpio_set_direction (MOSFET1,GPIO_MODE_OUTPUT);
-    // gpio_set_direction (MOSFET2,GPIO_MODE_OUTPUT);
+    gpio_set_direction (MOSFET1,GPIO_MODE_OUTPUT);
+    gpio_set_direction (MOSFET2,GPIO_MODE_OUTPUT);
     gpio_set_direction (MOSFET3,GPIO_MODE_OUTPUT);
 
+    gpio_set_level(TRIAC1,1);
+    gpio_set_level(TRIAC2,1);
+    gpio_set_level(TRIAC3,1);
+
+    gpio_set_level(MOSFET1,1);
+    gpio_set_level(MOSFET2,1);
+    gpio_set_level(MOSFET3,1);
+
+    init_gpio_intr();
+
+    init_timer();
 }
 
 static void restart_system()
@@ -289,7 +464,7 @@ static bool read_data_wifi(uint8_t* WIFI_SSID_, uint8_t* WIFI_PASS_)
     switch (err) {
             case ESP_OK:
                 printf("Done read MagNum\n");
-                printf("MagNum = %d\n", WIFI_MagNum);
+                // printf("MagNum = %d\n", WIFI_MagNum);
                 break;
             case ESP_ERR_NVS_NOT_FOUND:
                 printf("The value is not initialized yet MagNum!\n");
@@ -317,10 +492,10 @@ static void setMosfet(MOS_num_t num, uint8_t state)
     switch (num)
     {
     case mos_1:
-        // gpio_set_level(MOSFET1,state); //HW nie dzila
+        gpio_set_level(MOSFET1,state); //HW nie dzila
         break;
     case mos_2:
-        // gpio_set_level(MOSFET2,state);  //HW nie dzila
+        gpio_set_level(MOSFET2,state);  //HW nie dzila
         break;
     case mos_3:
         gpio_set_level(MOSFET3,state);
@@ -332,21 +507,52 @@ static void setMosfet(MOS_num_t num, uint8_t state)
 static void setTRIAC(TRIAC_num_t num, uint8_t state)
 {   
 
-    if(state>0) state=1;
+    if(state>10) state=10;
 
     switch (num)
     {
     case tri_1:
-        gpio_set_level(TRIAC1,state);
+        if(state<10)
+        {
+            TRIAC_state.TRIAC1_state=true;
+            TRIAC_state.TRIAC1_Del=state;
+            enable_interr_cross();
+        }
+        else 
+        {
+            TRIAC_state.TRIAC1_state=false;
+            TRIAC_state.TRIAC1_Del=10;
+        }
         break;
     case tri_2:
-        gpio_set_level(TRIAC2,state); 
+        if(state<10)
+        {
+            TRIAC_state.TRIAC2_state=true;
+            TRIAC_state.TRIAC2_Del=state;
+            enable_interr_cross();
+        }
+        else 
+        {
+            TRIAC_state.TRIAC2_state=false;
+            TRIAC_state.TRIAC2_Del=10;
+        } 
         break;
     case tri_3:
-        gpio_set_level(TRIAC3,state);
+        if(state<10)
+        {
+            TRIAC_state.TRIAC3_state=true;
+            TRIAC_state.TRIAC3_Del=state;
+            enable_interr_cross();
+        }
+        else 
+        {
+            TRIAC_state.TRIAC3_state=false;
+            TRIAC_state.TRIAC3_Del=10;
+        }
         break;
 
     }
+    check_need_interr_cross();
 }
 
 static bool cJSON_parser_setstate(char *output_buffer)
@@ -364,14 +570,34 @@ static bool cJSON_parser_setstate(char *output_buffer)
 
         cJSON *T_1 = cJSON_GetObjectItem(TRIAC, "T_1");
         ESP_LOGW("cJSON", "T_1:%d", T_1->valueint);
+        
+        if(check_en_sun_mode(tri_1))
+        {
+            disable_sun_mode();
+        }
+        
         setTRIAC(tri_1, T_1->valueint);
 
+        
         cJSON *T_2 = cJSON_GetObjectItem(TRIAC, "T_2");
         ESP_LOGW("cJSON", "T_2:%d", T_2->valueint);
+
+        if(check_en_sun_mode(tri_2))
+        {
+            disable_sun_mode();
+        }
+
         setTRIAC(tri_2, T_2->valueint);
 
+        
         cJSON *T_3 = cJSON_GetObjectItem(TRIAC, "T_3");
         ESP_LOGW("cJSON", "T_3:%d", T_3->valueint);
+
+         if(check_en_sun_mode(tri_3))
+        {
+            disable_sun_mode();
+        }
+
         setTRIAC(tri_3, T_3->valueint);
 
     cJSON *MOS = cJSON_GetObjectItem(root, "MOS");
@@ -416,7 +642,7 @@ static void cJSON_parser_setwifi(char *output_buffer)
     if (root == NULL) 
     {
         ESP_LOGW("cJSON", "errorPars");
-        return 0;
+        // return 0;
     }
 
     
@@ -433,6 +659,39 @@ static void cJSON_parser_setwifi(char *output_buffer)
     save_data_wifi(SSID->valuestring, PASS->valuestring, RES->valueint);
 
     cJSON_Delete(root);
+}
+
+static bool cJSON_parser_setsunmode(char *output_buffer)
+{
+    cJSON *root = cJSON_Parse(output_buffer);
+    
+    if (root == NULL) 
+    {
+        ESP_LOGW("cJSON", "errorPars");
+        // return 0;
+    }
+
+    cJSON *Chanal = cJSON_GetObjectItem(root, "Chanal");
+    ESP_LOGW("cJSON", "Chanal:%d", Chanal->valueint);
+
+    cJSON *Hour = cJSON_GetObjectItem(root, "Hour");
+    ESP_LOGW("cJSON", "Hour:%d", Hour->valueint);
+
+    cJSON *Min = cJSON_GetObjectItem(root, "Min");
+    ESP_LOGW("cJSON", "Min:%d", Min->valueint);
+
+    cJSON *Dur = cJSON_GetObjectItem(root, "Dur");
+    ESP_LOGW("cJSON", "Dur:%d", Dur->valueint);
+
+    sun_mode.chanal=Chanal->valueint;
+    sun_mode.hour_start=Hour->valueint;
+    sun_mode.min_start=Min->valueint;
+    sun_mode.dur=Dur->valueint;
+    sun_mode.state=true;
+
+    cJSON_Delete(root);
+
+    return 1;
 }
 
 static esp_err_t setwifi_post_handler(httpd_req_t *req)
@@ -503,6 +762,41 @@ static esp_err_t setstate_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t setsunmode_post_handler(httpd_req_t *req)
+{
+    char buf[400];
+    int ret, remaining = req->content_len;
+
+    while (remaining > 0) {
+        /* Read the data for the request */
+        if ((ret = httpd_req_recv(req, buf,
+                        MIN(remaining, sizeof(buf)))) <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                /* Retry receiving if timeout occurred */
+                continue;
+            }
+            return ESP_FAIL;
+        }
+
+        /* Send back the same data */
+        httpd_resp_send_chunk(req, buf, ret);
+        remaining -= ret;
+
+        /* Log data received */
+        ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+        ESP_LOGI(TAG, "%.*s", ret, buf);
+        ESP_LOGI(TAG, "====================================");
+
+       
+    }
+
+    // End response
+    httpd_resp_send_chunk(req, NULL, 0);
+    cJSON_parser_setsunmode(&buf);
+    return ESP_OK;
+}
+
+
 static const httpd_uri_t root = {
     .uri       = "/",
     .method    = HTTP_GET,
@@ -522,6 +816,14 @@ static const httpd_uri_t setStateDevice = {
     .handler   = setstate_post_handler,
     .user_ctx  = NULL
 };
+
+static const httpd_uri_t setSunMode = {
+    .uri       = "/setsunmode",
+    .method    = HTTP_POST,
+    .handler   = setsunmode_post_handler,
+    .user_ctx  = NULL
+};
+
 
 static httpd_handle_t start_webserver(void)
 {
@@ -558,7 +860,14 @@ static httpd_handle_t start_webserver(void)
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &setwifi));
 
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &setStateDevice));
+
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &setSunMode));
+
+    // LCD_info_setwifi();
+
     return server;
+
+
 }
 
 static void stop_webserver(httpd_handle_t server)
@@ -574,13 +883,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 {
     if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
-                 MAC2STR(event->mac), event->aid);
+        // ESP_LOGI(TAG, "station "MACSTR" join, AID=%d", MAC2STR(event->mac), event->aid);
                  
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
-                 MAC2STR(event->mac), event->aid);
+        // ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",  MAC2STR(event->mac), event->aid);
     }
 }
 
@@ -675,6 +982,34 @@ EventBits_t wifi_init_sta(void)
     return 1;
 }
 
+static void LCD_info_sofrap()
+{
+    ST7789_WriteCommand (SPIhandle,ST7789_DISPOFF);
+
+	ST7789_Fill_Color(SPIhandle, 0xBDF8);
+    ST7789_WriteString(SPIhandle, 5, 10, "TO CONECT WIFI", Font_16x26, MAGENTA, 0xBDF8);
+    ST7789_WriteString(SPIhandle, 30, 50, "SSID: ESP_EXAM ", Font_11x18, MAGENTA, 0xBDF8);
+    
+    ST7789_WriteString(SPIhandle, 30, 70, "PASS: 12345678 ", Font_11x18, MAGENTA, 0xBDF8);
+    ST7789_WriteCommand (SPIhandle,ST7789_DISPON);
+}
+
+
+static void LCD_info_setwifi()
+{
+    ST7789_WriteCommand (SPIhandle,ST7789_DISPOFF);
+
+	ST7789_Fill_Color(SPIhandle, 0xBDF8);
+    ST7789_WriteString(SPIhandle, 5, 10, "Сonfigure WIFI", Font_16x26, MAGENTA, 0xBDF8);
+    ST7789_WriteString(SPIhandle, 30, 50, "IP: 192.168.4.1 ", Font_11x18, MAGENTA, 0xBDF8);
+    
+    ST7789_WriteString(SPIhandle, 30, 70, "ADD POST REQ: /setwifi ", Font_11x18, MAGENTA, 0xBDF8);
+    
+    ST7789_WriteString(SPIhandle, 50, 70, "Body exam: { ", Font_11x18, MAGENTA, 0xBDF8);
+    
+    ST7789_WriteString(SPIhandle, 70, 70, "*SSID*:**,", Font_11x18, MAGENTA, 0xBDF8);
+    ST7789_WriteCommand (SPIhandle,ST7789_DISPON);
+}
 
 
 void wifi_init_softap(void)
@@ -716,6 +1051,8 @@ void wifi_init_softap(void)
 
     ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
              ESP_WIFI_SSID, ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
+
+    LCD_info_sofrap();
 }
 
 static bool write_state_wifi(uint8_t WIFI_state)
@@ -772,12 +1109,201 @@ static uint8_t read_state_wifi()
 
 }
 
+static void check_need_interr_cross()
+{
+    if((!TRIAC_state.TRIAC1_state) && (!TRIAC_state.TRIAC2_state) && (!TRIAC_state.TRIAC3_state))
+    {
+    gpio_intr_disable(CROSSIN);
+    ESP_LOGI(TAG, "INTR CROSS DISABLE");
+    }
+}
+
+static void enable_interr_cross()
+{
+    gpio_intr_enable(CROSSIN);
+    ESP_LOGI(TAG, "INTR CROSS ENABLE");
+}
+
+static bool check_en_sun_mode(TRIAC_num_t num)
+{
+    if(sun_mode.state==true)
+    {
+        if(sun_mode.chanal==num)
+        ESP_LOGE(TAG, "sun_mode is on");
+        return 1;
+    }
+    else return 0;
+}
+
+static void disable_sun_mode()
+{
+    ESP_LOGE(TAG, "sun_mode is off");
+    sun_mode.sun_on=false;
+}
+
+static void sun_task()
+{   
+    bool i=1;
+    time_t now_sun;
+    struct tm timeinfo_sun;
+    uint8_t counter=9;
+    while(1)
+    {
+
+        while (i)
+        {   
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            ESP_LOGE(TAG, "hours=%d",timeinfo.tm_hour);
+            
+            ESP_LOGE(TAG, "hours=%d",timeinfo.tm_min);
+
+            ESP_LOGE(TAG, "hours_set=%d",sun_mode.hour_start);
+
+            if(sun_mode.hour_start==timeinfo.tm_hour)
+            {
+                ESP_LOGE(TAG, "HOURS OK");
+                if(sun_mode.min_start==timeinfo.tm_min)
+                {
+                    ESP_LOGE(TAG, "MIN OK");
+                    sun_mode.sun_on=true;
+                    i=0;
+                    break;
+                    }
+                else ESP_LOGE(TAG, "MIN bad");
+            }       
+            else ESP_LOGE(TAG, "hours bad");
+
+            vTaskDelay(59000/ portTICK_PERIOD_MS);
+            }
+            
+            
+            
+            
+            while(sun_mode.sun_on)
+            {   
+                uint32_t delay_time=(sun_mode.dur/9)*60000;
+                    ESP_LOGE(TAG, "start sunmode=%d, %d",counter, delay_time);  
+                
+                if(counter==9)
+                {
+                    switch (sun_mode.chanal)
+                    {
+                    case 1:
+                        TRIAC_state.TRIAC1_state=true;
+                        break;
+                    case 2:
+                        TRIAC_state.TRIAC2_state=true;
+                        break;
+                    case 3:
+                        TRIAC_state.TRIAC3_state=true;
+                        break;
+                    
+                    
+                    }
+
+                    enable_interr_cross();
+                }
+
+                
+                 switch (sun_mode.chanal)
+                    {
+                    case 1:
+                        TRIAC_state.TRIAC1_Del=counter;
+                        break;
+                    case 2:
+                        TRIAC_state.TRIAC2_Del=counter;
+                        break;
+                    case 3:
+                        TRIAC_state.TRIAC3_Del=counter;
+                        break;
+                    
+                    
+                    }
+                
+                if (counter==1) 
+                {
+                    sun_mode.sun_on=false;
+                    i=1;
+                    
+                    break;
+                }
+                counter--;
+                vTaskDelay(delay_time/ portTICK_PERIOD_MS);
+
+                i=1;
+            }
+
+            counter=9;
+        
+    
+    }
+    // vTaskDelete(NULL);
+}
+
+void sun_mode_start(uint8_t dur)
+{
+     xTaskCreate(sun_task, "sun_task", 2024, NULL, 1, &xSun_task_handl);
+}
+
+void time_sync_notification_cb(struct timeval *tv)
+{
+    ESP_LOGI(TAG, "Notification of a time synchronization event");
+}
+
+static void initialize_sntp(void)
+{
+    ESP_LOGI(TAG, "Initializing SNTP");
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_setservername(0, "pool.ntp.org");
+    sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+
+    sntp_init();
+}
+
+static void obtain_time(void)
+{
+    initialize_sntp();
+
+    // wait for time to be set
+   
+    int retry = 0;
+    const int retry_count = 10;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+    // time(&now);
+    // localtime_r(&now, &timeinfo);
+}
+
+void get_time()
+{
+    
+    obtain_time();
+    time(&now);
+
+    char strftime_buf[64];
+
+    // Set timezone to Eastern Standard Time and print local time
+     setenv("TZ", "MST7MDT,M3.2.0/2,M11.1.0", 1);
+     tzset();
+    localtime_r(&now, &timeinfo);
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "The current date/time in Calgary is: %s", strftime_buf);
+}
+
+
 void app_main(void)
 {   
-
+    char strftime_buf[64];
     initHW();
-
-
+  spi_master_init(&SPIhandle);
+	ST7789_Init(&SPIhandle);
+   
+    
+	
+	
     static httpd_handle_t server = NULL;
  esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -785,6 +1311,9 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);  
+
+    write_state_wifi(WIFI_STATE_STA);
+
     uint8_t WIFI_state = read_state_wifi();
    
     if  (WIFI_state == WIFI_STATE_STA) 
@@ -803,8 +1332,24 @@ void app_main(void)
         }               
         
          start_webserver();
+
+
+get_time();
+sun_mode_start(5);
+   while(1)
+   {
+    
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // time(&now);
+    // localtime_r(&now, &timeinfo);
+    // strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    // ESP_LOGI(TAG, "The current date/time in Calgary is: %s", strftime_buf);
+    // ESP_LOGE(TAG, "hours=%d",timeinfo.tm_hour);
+    
+    }
  
-  
+
+
 
     
 }

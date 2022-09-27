@@ -21,6 +21,22 @@
     "string.h": "c",
     "stdio.h": "c",
     "math.h": "c",
-    "ratio": "c"
-  }
+    "ratio": "c",
+    "st7789.h": "c",
+    "future": "c",
+    "system_error": "c",
+    "regex": "c",
+    "array": "c",
+    "bitset": "c",
+    "string_view": "c",
+    "initializer_list": "c",
+    "utility": "c",
+    "string": "c",
+    "*.ipp": "c",
+    "gpio.h": "c",
+    "iomanip": "c"
+  },
+  "idf.adapterTargetName": "esp32",
+  "idf.portWin": "COM8",
+  "idf.flashType": "UART"
 }
