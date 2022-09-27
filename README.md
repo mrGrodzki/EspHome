@@ -14,7 +14,7 @@ This project made for increasing comfort life in rooms/small apartments, namely 
 - Measuring temperature and humidity 
 - Configuring and swishing network with HTTPS
 - HTTPS server / MQTT client
-- ~~Status display~~
+- ~~Status display~~ has lost its meaning in this version of the project. will be implemented in the next project.
 
 ## Technical solution:
 
@@ -34,7 +34,7 @@ This project made for increasing comfort life in rooms/small apartments, namely 
 - Connector for motion sensor 
 - Connector for sensor temperature
 - Wiring of the microcontroller
-- ~~Connector for LCD~~
+- ~~Connector for LCD~~ has lost its meaning in this version of the project. will be implemented in the next project.
 
 ## Implemented software:
 
@@ -120,8 +120,9 @@ Body:
     "Dur":30
 }
 ```
+## Hardware 2.0v:
 
-## HW:
+## Hardware 1.0v:
 
 Schematics:
 
@@ -130,8 +131,6 @@ Schematics:
 ![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/esphome_schem_par2.png)
 
 PCB:
-
-![Alt Text](https://github.com/mrGrodzki/EspHome/blob/main/HW/PCBEspHome.png)
 
 Unfortunately the PCB was overheating during soldering, thus turning yellow:
 
