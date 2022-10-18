@@ -1312,7 +1312,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);  
 
-    write_state_wifi(WIFI_STATE_STA);
+ 
 
     uint8_t WIFI_state = read_state_wifi();
    
